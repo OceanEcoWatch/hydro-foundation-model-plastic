@@ -1,3 +1,4 @@
+import rasterio
 import torch
 
 from src.datasets.marida import MARIDA
@@ -14,30 +15,36 @@ marida_test = MARIDA("data/MARIDA", split="test")
 config_path = "checkpoints/swin-v2-msi/config.yaml"
 model, transforms, config = swin_v2(config_path)
 
-# Specify the number of classes
 num_classes = len(marida_train.classes)
-print(f"Number of classes: {num_classes}")
-# evaluating the model on MARIDA dataset
-model.eval()
+model.reset_classifier(num_classes=num_classes)
+
+
 model.to(device)
 
 # Evaluate the model on the validation set
 with torch.no_grad():
     for i in range(len(marida_val)):
+        with rasterio.open(marida_val.images[i]) as src:
+            transform = src.transform
+            crs = src.crs
+
         sample = marida_val[i]
         image = sample["image"]
+
         mask = sample["mask"]
 
+        extra_channel = torch.zeros_like(image[0]).unsqueeze(0)
+        image = torch.cat(
+            [image, extra_channel], dim=0
+        )  # TODO Check if this is correct
         image = image.to(device).unsqueeze(0)
         mask = mask.to(device).unsqueeze(0)
-
+        print(image.shape, mask.shape)
         output = model(image)
-        # Assuming output is the predicted mask
-        # You can compare it with the ground truth mask (mask) to evaluate the model's performance
-        # You can use metrics like IoU, F1 score, etc. to evaluate the model
-        # For example, you can calculate the IoU as follows:
-        predicted_mask = output.argmax(dim=1)
-        intersection = (predicted_mask & mask).float().sum()
-        union = (predicted_mask | mask).float().sum()
-        iou = (intersection + 1e-6) / (union + 1e-6)
-        print(f"IoU: {iou.item()}")
+
+        print(output.shape)
+        predicted_classes = output.argmax(dim=1)
+        print(predicted_classes.shape)
+        print(predicted_classes)
+
+        # compare output and mask
